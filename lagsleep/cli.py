@@ -42,22 +42,23 @@ def prepare(args):
                 continue
             e = eeg[start:end].astype(np.float32)
             o = eog[start - margin:end + margin].astype(np.float32)
-            usable = bool(np.isfinite(e).all() and np.isfinite(o).all() and np.std(o) > 1e-6)
-            if not usable:
+            if not np.isfinite(e).all():
                 continue
+            usable = bool(np.isfinite(o).all() and np.std(o) > 1e-6)
+            o = np.nan_to_num(o, nan=0, posinf=0, neginf=0)
             correlations = []
             for offset in OFFSETS:
                 lo = margin + round(offset * fs)
                 correlations.append(abs(np.corrcoef(e, o[lo:lo + length])[0, 1]))
             scores = np.sort(np.nan_to_num(correlations))
-            identifiable = bool(transition[k] and scores[-1] >= 0.25 and scores[-1] - scores[-2] >= 0.02)
-            packed.setdefault(split, []).append((subject, e, o, label, transition[k], identifiable))
+            identifiable = bool(usable and transition[k] and scores[-1] >= 0.25 and scores[-1] - scores[-2] >= 0.02)
+            packed.setdefault(split, []).append((subject, e, o, label, transition[k], identifiable, usable))
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
     for split, samples in packed.items():
-        subject, eeg, eog, y, transition, identifiable = zip(*samples)
+        subject, eeg, eog, y, transition, identifiable, eligible = zip(*samples)
         np.savez_compressed(out / f"{split}.npz", subject=subject, eeg=np.array(eeg), eog=np.array(eog),
-                            y=y, transition=transition, identifiable=identifiable, fs=args.fs)
+                            y=y, transition=transition, identifiable=identifiable, eligible=eligible, fs=args.fs)
 
 
 def batch(data, index, shift, device):
@@ -95,7 +96,7 @@ def infer(net, data, args, method, shift, missing, threshold=0, entropy_threshol
             index = np.arange(start, min(start + args.batch_size, len(data["y"])))
             e, o, _ = batch(data, index, shift, args.device)
             out = net(e, o)
-            available = torch.as_tensor(rng.random(len(index)) >= missing, device=args.device)
+            available = torch.as_tensor((rng.random(len(index)) >= missing) & data["eligible"][index], device=args.device)
             prediction, fallback = choose(out, method, available, threshold, entropy_threshold)
             predictions.append(prediction.cpu().numpy())
             js.append(out["js"].cpu().numpy())
@@ -126,7 +127,7 @@ def train(args):
             shift = np.zeros(len(index)) if args.no_shift_augmentation else rng.choice(OFFSETS, len(index))
             e, o, y = batch(data, index, shift, args.device)
             out = net(e, o)
-            available = torch.as_tensor(rng.random(len(index)) >= 0.2, device=args.device)
+            available = torch.as_tensor((rng.random(len(index)) >= 0.2) & data["eligible"][index], device=args.device)
             if args.no_missing_loss:
                 available = torch.ones_like(available)
             probability = torch.where(available[:, None], out["mixture"], out["eeg"])

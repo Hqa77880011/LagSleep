@@ -44,7 +44,7 @@ lagsleep train --data data/prepared --output runs/train
 lagsleep evaluate --data data/prepared --checkpoint runs/train/model.pt --output runs/full
 ```
 
-Preparation drops unscored epochs and epochs without the required real EOG context. It retains ten seconds on either side of each EOG epoch so injected shifts and candidate corrections can be jointly cropped without padding. The fixed candidate set is `[-5,-3,-2,-1,-0.5,0,0.5,1,2,3,5]` seconds. Positive injected shifts read later EOG samples; the correct compensating candidate has the opposite sign. EEG labels stay fixed.
+Preparation drops unscored epochs and epochs without the required real EOG context. It retains ten seconds on either side of each EOG epoch so injected shifts and candidate corrections can be jointly cropped without padding. Constant or nonfinite EOG marks the retained epoch as technically ineligible and invokes EEG fallback; nonfinite values are sanitized only for safe tensor construction. The fixed candidate set is `[-5,-3,-2,-1,-0.5,0,0.5,1,2,3,5]` seconds. Positive injected shifts read later EOG samples; the correct compensating candidate has the opposite sign. EEG labels stay fixed.
 
 ## Conditions, controls and ablations
 
